@@ -90,16 +90,12 @@ Puntos clave:
 
 - Habilitar un módulo:
   ```bash
-  a2enmod nombre_modulo
-  ```
-  Ejemplo:
-  ```bash
   a2enmod ssl
   ```
 
 - Deshabilitar un módulo:
   ```bash
-  a2dismod nombre_modulo
+  a2dismod ssl
   ```
 
 Internamente, `a2enmod` crea un enlace simbólico desde `mods-available` a `mods-enabled`; `a2dismod` elimina ese enlace.
