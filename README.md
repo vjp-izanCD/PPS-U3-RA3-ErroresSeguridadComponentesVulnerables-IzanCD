@@ -12,22 +12,8 @@
    docker-compose up -d
    ```
 
-En esta práctica **no** vamos a tocar principalmente archivos `.php` de la aplicación, sino los archivos de configuración del servidor:
-
-- **Archivo de configuración global de Apache**: `/etc/apache2/apache2.conf`
-  - Es el fichero principal de Apache.
-  - No está en un volumen bind-mount, así que para modificarlo hay que entrar dentro del contenedor.
-  - Asegúrate de tener solo un archivo de configuración válido; configuraciones duplicadas o incorrectas pueden impedir que el contenedor arranque.
-
-- **Archivo de configuración de PHP**: `/usr/local/etc/php/php.ini`
-  - En el escenario multicontenedor se expone por bind-mount en `./config/php/php.ini`, por lo que puedes editarlo directamente desde el anfitrión.
-
-- **Configuración de sitios virtuales de Apache**: `/etc/apache2/sites-enabled/`
-  - Tiene bind-mount con el directorio `./config/vhosts/` del anfitrión.
-  - Podrás modificar o añadir configuraciones de sitios virtuales trabajando sobre `./config/vhosts/`.
-
-En el último punto del enunciado original tienes una sección de "IMPORTANTE – Solución problemas que puedan surgir" donde se explican errores típicos al cambiar configuraciones; conviene leerla antes de tocar nada.
-
+![Captura 1](Captura-01.png)
+   
 ---
 
 ## 2. Apache en el escenario Docker
@@ -52,6 +38,8 @@ apt install apache2
 ```
 
 Si no estás trabajando como `root`, añade `sudo` delante de los comandos.
+
+![Captura 2](Captura-02.png)
 
 ---
 
@@ -100,6 +88,8 @@ Puntos clave:
 
 Internamente, `a2enmod` crea un enlace simbólico desde `mods-available` a `mods-enabled`; `a2dismod` elimina ese enlace.
 
+![Captura 3-1](Captura-03-01.png)
+
 **Gestión de sitios virtuales:**
 
 - `sites-available`: configuraciones de sitios disponibles (pueden estar habilitados o no).
@@ -108,6 +98,8 @@ Internamente, `a2enmod` crea un enlace simbólico desde `mods-available` a `mods
   ```bash
   a2ensite archivo.conf
   ```
+  
+![Captura 3-2](Captura-03-02.png)
 
 ---
 
@@ -128,6 +120,8 @@ En este caso, vamos a usar `default.conf` (o un fichero equivalente) con este co
 
 </VirtualHost>
 ```
+
+![Captura 4-1](Captura-04-01.png)
 
 Significado de las directivas más importantes:
 
@@ -152,6 +146,8 @@ Para que tenga acceso al contenido del sitio en `/var/www/html`, puedes ejecutar
 docker exec lamp-php83 /bin/bash -c "chown -R www-data:www-data /var/www/html && chmod -R 755 /var/www/html"
 ```
 
+![Captura 4-2](Captura-04-02.png)
+
 ---
 
 ## 5. Resolución local de nombres: `/etc/hosts`
@@ -165,6 +161,8 @@ En el archivo `/etc/hosts` añades:
 127.0.0.1 pps.edu www.pps.edu
 ```
 
+![Captura 5-1](Captura-05-01.png)
+
 Como trabajamos con Docker y usamos redirección de puertos (el contenedor se expone en `http://localhost:80`), la IP `127.0.0.1` (bucle local) es perfecta.
 
 Una vez añadida la línea en `/etc/hosts`, puedes acceder a:
@@ -172,6 +170,8 @@ Una vez añadida la línea en `/etc/hosts`, puedes acceder a:
 ```
 http://www.pps.edu/
 ```
+
+![Captura 5-2](Captura-05-02.png)
 
 ---
 
@@ -198,11 +198,15 @@ Pasos:
    </html>
    ```
 
+![Captura 6-1](Captura-06-01.png)
+
 3. Establecer permisos y propietarios:
    ```bash
    chown -R www-data:www-data /var/www/hacker
    chmod -R 755 /var/www/hacker
    ```
+
+![Captura 6-2](Captura-06-02.png)
 
 4. Crear el archivo de configuración del sitio virtual en `./config/vhosts/hacker.conf`:
    ```conf
@@ -216,20 +220,28 @@ Pasos:
    </VirtualHost>
    ```
 
+![Captura 6-3](Captura-06-03.png)
+
 5. Recargar Apache:
    ```bash
    service apache2 reload
    ```
+
+![Captura 6-4](Captura-06-04.png)
 
 6. Añadir el dominio a `/etc/hosts` de tu anfitrón:
    ```
    127.0.0.1 hacker hacker.edu www.hacker.edu
    ```
 
+![Captura 6-5](Captura-06-05.png)
+
 7. Acceder desde el navegador:
    ```
    http://www.hacker.edu/
    ```
+
+![Captura 6-6](Captura-06-06.png)
 
 ---
 
@@ -267,6 +279,8 @@ Durante la ejecución se te pedirá información (país, organización, nombre c
 Common Name (e.g. server FQDN or YOUR name): pps.edu
 ```
 
+![Captura 7-1](Captura-07-01.png)
+
 ### Paso 2: Configurar Apache para usar HTTPS
 
 Modifica el archivo de configuración de tu sitio virtual. En tu pila LAMP, este archivo está en `./config/vhosts/default.conf` (bind-mount).
@@ -300,6 +314,8 @@ Edita `./config/vhosts/default.conf` en tu anfitrón:
 </VirtualHost>
 ```
 
+![Captura 7-2](Captura-07-02.png)
+
 ### Paso 3: Habilitar módulo SSL y recargar Apache
 
 Desde el contenedor o anfitrón:
@@ -315,6 +331,8 @@ Ahora puedes acceder a:
 ```
 https://www.pps.edu/
 ```
+
+![Captura 7-3](Captura-07-03.png)
 
 **Nota**: Como el certificado es autofirmado, el navegador avisará de que no es de confianza. Haz clic en "Avanzado" o "Continuar igualmente" para acceder al sitio.
 
@@ -347,6 +365,8 @@ Modifica `./config/vhosts/default.conf`:
     SSLCertificateChainFile /etc/apache2/ssl/localhost.crt
 </VirtualHost>
 ```
+
+![Captura 8-1](Captura-08-01.png)
 
 Recarga Apache:
 
@@ -383,6 +403,8 @@ Modifica `./config/vhosts/default.conf`:
 </VirtualHost>
 ```
 
+![Captura 8-2](Captura-08-02.png)
+
 Asegúrate de que el módulo `mod_rewrite` está habilitado:
 
 ```bash
@@ -402,6 +424,8 @@ RewriteEngine On
 RewriteCond %{HTTPS} !=on
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 ```
+
+![Captura 9-1](Captura-09-01.png)
 
 **Requisito**: En tu `./config/vhosts/default.conf` debes permitir que se lean archivos `.htaccess`:
 
@@ -431,6 +455,8 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 </VirtualHost>
 ```
 
+![Captura 9-2](Captura-09-02.png)
+
 Asegúrate de que `mod_rewrite` está habilitado:
 
 ```bash
@@ -439,12 +465,7 @@ docker exec lamp-php83 /bin/bash -c "a2enmod rewrite; service apache2 restart"
 
 ---
 
-
-
-
----
-
-## 13. Implementación y Evaluación de Content Security Policy (CSP)
+## 10. Implementación y Evaluación de Content Security Policy (CSP)
 
 Para reforzar la seguridad, implementamos una política de seguridad de contenidos (**CSP**). El CSP ayuda a prevenir ataques como XSS al restringir de dónde se pueden cargar scripts, estilos e imágenes.
 
@@ -460,9 +481,11 @@ Edita `./config/vhosts/default.conf` y añade:
 
 Con esta política, solo se permite cargar contenido de tu propio servidor (`'self'`), bloqueando cualquier fuente externa.
 
+![Captura 10](Captura-10.png)
+
 ---
 
-## 14. HSTS (HTTP Strict Transport Security)
+## 11. HSTS (HTTP Strict Transport Security)
 
 HSTS obliga al navegador a usar siempre HTTPS, evitando ataques de tipo *downgrade*.
 
@@ -476,13 +499,15 @@ Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains
 
 **Importante**: Asegúrate de que HTTPS funcione correctamente antes de aplicar HSTS, ya que los navegadores recordarán esta configuración por mucho tiempo (2 años en este ejemplo).
 
+![Captura 11](Captura-11.png)
+
 ---
 
-## 15. Identificación y Corrección de Security Misconfiguration
+## 12. Identificación y Corrección de Security Misconfiguration
 
 La **Security Misconfiguration** (configuración de seguridad incorrecta) ocurre cuando los servicios tienen configuraciones por defecto inseguras o exponen información sensible.
 
-### 15.1 Ocultar información del servidor (Apache)
+### 12.1 Ocultar información del servidor (Apache)
 
 Por defecto, Apache puede mostrar su versión y sistema operativo en las cabeceras. Compruébalo con:
 
@@ -492,6 +517,8 @@ curl -I http://pps.edu
 
 Si ves algo como `Server: Apache/2.4.41 (Ubuntu)`, estás exponiendo información.
 
+![Captura 12-1](Captura-12-01.png)
+
 **Corrección:**
 Modifica `/etc/apache2/conf-available/security.conf` (dentro del contenedor):
 
@@ -500,12 +527,14 @@ ServerSignature Off
 ServerTokens Prod
 ```
 
+![Captura 12-2](Captura-12-02.png)
+
 Reinicia Apache:
 ```bash
 docker exec lamp-php83 /bin/bash -c "service apache2 reload"
 ```
 
-### 15.2 Ocultar versión de PHP
+### 12.2 Ocultar versión de PHP
 
 PHP también expone su versión a través de la cabecera `X-Powered-By`.
 
@@ -516,9 +545,13 @@ Edita tu archivo `php.ini` (en `./config/php/php.ini` o `/usr/local/etc/php/php.
 expose_php = Off
 ```
 
+![Captura 12-3](Captura-12-03.png)
+
 Recarga Apache y verifica de nuevo con `curl -I`.
 
-### 15.3 Deshabilitar listado de directorios
+![Captura 12-4](Captura-12-04.png)
+
+### 12.3 Deshabilitar listado de directorios
 
 Si no hay un archivo `index.html` o `index.php`, Apache muestra el listado de archivos del directorio por defecto.
 
@@ -540,16 +573,16 @@ En la configuración de tu sitio (`default.conf` o `hacker.conf`), cambia `Index
 
 ---
 
-## 16. Otras Mitigaciones y Mejores Prácticas
+## 13. Otras Mitigaciones y Mejores Prácticas
 
-### 16.1 Revisar permisos de archivos sensibles
+### 13.1 Revisar permisos de archivos sensibles
 
 Los archivos de configuración no deben ser legibles por usuarios no autorizados:
 ```bash
 chmod 640 /etc/apache2/apache2.conf
 ```
 
-### 16.2 Políticas de Control de Acceso (Autorización)
+### 13.2 Políticas de Control de Acceso (Autorización)
 
 Usa la directiva `Require` para limitar accesos:
 - `Require all granted`: Acceso total.
@@ -557,7 +590,7 @@ Usa la directiva `Require` para limitar accesos:
 - `Require local`: Solo desde localhost.
 - `Require ip 172.20`: Solo desde una red específica.
 
-### 16.3 Desactivar métodos HTTP inseguros
+### 13.3 Desactivar métodos HTTP inseguros
 
 Limita los métodos permitidos a los necesarios (normalmente GET y POST):
 
@@ -569,9 +602,11 @@ Limita los métodos permitidos a los necesarios (normalmente GET y POST):
 </Directory>
 ```
 
+![Captura 13](Captura-13.png)
+
 ---
 
-## 17. Implementación de WAF con ModSecurity
+## 14. Implementación de WAF con ModSecurity
 
 Un **WAF (Web Application Firewall)** protege contra ataques comunes como SQLi, XSS y Path Traversal filtrando el tráfico malicioso.
 
@@ -582,6 +617,8 @@ Entra en el contenedor y ejecuta:
 apt update
 apt install libapache2-mod-security2
 ```
+
+![Captura 14-1](Captura-14-01.png)
 
 ### Paso 2: Configuración recomendada
 
@@ -602,6 +639,8 @@ cd coreruleset
 cp crs-setup.conf.example crs-setup.conf
 ```
 
+![Captura 14-2](Captura-14-02.png)
+
 Asegúrate de que las reglas se carguen en `/etc/apache2/mods-available/security2.conf` o crea un archivo en `conf-available`:
 
 ```conf
@@ -609,17 +648,18 @@ IncludeOptional /etc/modsecurity/coreruleset/crs-setup.conf
 IncludeOptional /etc/modsecurity/coreruleset/rules/*.conf
 ```
 
+![Captura 14-3](Captura-14-03.png)
+
 ### Paso 4: Probar el WAF
 
 Intenta un ataque de **Path Traversal**:
 `https://pps.edu/lfi.php?file=../../../../etc/passwd`
 
-Si está en modo `On`, recibirás un error **403 Forbidden**. Puedes revisar los ataques detectados en:
-`/var/log/apache2/modsec_audit.log`
+![Captura 14-4](Captura-14-04.png)
 
 ---
 
-## 18. Solución de Problemas (Troubleshooting)
+## 15. Solución de Problemas (Troubleshooting)
 
 ### Escenario no arranca tras cambios
 Si Apache falla al iniciar después de modificar vhosts, puede ser porque:
@@ -632,30 +672,7 @@ Si Apache falla al iniciar después de modificar vhosts, puede ser porque:
 
 ---
 
-## Volver a dejar todo "niquelao"
-
-Para eliminar los cambios que hemos realizado en esta actividad y volver a dejar todo en su sitio de cara a hacer otras actividades vamos a realizar algunas acciones
-
-Desinstalamos Modsecurity y elimanos las reglas de ModSecurity:
-
-```bash
-sudo apt remove --purge libapache2-mod-security2
-rm -rf /etc/modsecurity
-```
-
-Volvemos a colocar los archivos por defecto
-
-- Archivo de configuración de `Apache`[/etc/apache2/apache2.conf](https://github.com/jmmedinac03vjp/PuestaProduccionSegura/blob/main/Unidad3-VulnerabilidadesWeb/Actividad-HardeningSevidorApache-HTTPS-HSTS-WAF/files/apache2.conf.minimo)
-
-- Archivo de configuración de `PHP`. Nosotros al estar utilizando un escenario multicontenedor lo tenemos en [/usr/local/etc/php/php.ini](https://github.com/jmmedinac03vjp/PuestaProduccionSegura/blob/main/Unidad3-VulnerabilidadesWeb/Actividad-HardeningSevidorApache-HTTPS-HSTS-WAF/files/php.ini).
-
-```bash
-apache2ctl -t -D DUMP_INCLUDES | grep modsecurity
-```
-
-No debe de darnos ningún resultado.
-
-**GUARDANDO LOS CAMBIOS**
+## 16. GUARDANDO LOS CAMBIOS
 
 Para guardar los cambios y volver a dejar la configuración original pasamos los dos scripts.
 
@@ -663,6 +680,8 @@ Para guardar los cambios y volver a dejar la configuración original pasamos los
 sudo ./guardarConfiguraciones.sh ApacheSeguro
 sudo ./restaurarConfiguracionOriginal.sh
 ```
+
+![Captura 16](Captura-16.png)
 
 Los archivos que hemos creado se guardarán en la carpeta `./ApacheSeguro/www`. Aunque en esta ocasión como hemos trabajado sobre todo con archivos de configuración, algunos de ellos no se han guardado.
 
