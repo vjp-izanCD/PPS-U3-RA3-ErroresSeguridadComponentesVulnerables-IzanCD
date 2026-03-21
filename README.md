@@ -456,3 +456,196 @@ docker exec lamp-php84 /bin/bash -c "a2enmod rewrite; service apache2 restart"
 ---
 
 
+
+
+---
+
+## 13. Implementación y Evaluación de Content Security Policy (CSP)
+
+Para reforzar la seguridad, implementamos una política de seguridad de contenidos (**CSP**). El CSP ayuda a prevenir ataques como XSS al restringir de dónde se pueden cargar scripts, estilos e imágenes.
+
+### Configuración en `default.conf`
+
+Edita `./config/vhosts/default.conf` y añade:
+
+```conf
+<IfModule mod_headers.c>
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+</IfModule>
+```
+
+Con esta política, solo se permite cargar contenido de tu propio servidor (`'self'`), bloqueando cualquier fuente externa.
+
+---
+
+## 14. HSTS (HTTP Strict Transport Security)
+
+HSTS obliga al navegador a usar siempre HTTPS, evitando ataques de tipo *downgrade*.
+
+### Configuración en `default.conf`
+
+Añade la siguiente cabecera en tu VirtualHost HTTPS (puerto 443):
+
+```conf
+Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+```
+
+**Importante**: Asegúrate de que HTTPS funcione correctamente antes de aplicar HSTS, ya que los navegadores recordarán esta configuración por mucho tiempo (2 años en este ejemplo).
+
+---
+
+## 15. Identificación y Corrección de Security Misconfiguration
+
+La **Security Misconfiguration** (configuración de seguridad incorrecta) ocurre cuando los servicios tienen configuraciones por defecto inseguras o exponen información sensible.
+
+### 15.1 Ocultar información del servidor (Apache)
+
+Por defecto, Apache puede mostrar su versión y sistema operativo en las cabeceras. Compruébalo con:
+
+```bash
+curl -I http://pps.edu
+```
+
+Si ves algo como `Server: Apache/2.4.41 (Ubuntu)`, estás exponiendo información.
+
+**Corrección:**
+Modifica `/etc/apache2/conf-available/security.conf` (dentro del contenedor):
+
+```conf
+ServerSignature Off
+ServerTokens Prod
+```
+
+Reinicia Apache:
+```bash
+docker exec lamp-php84 /bin/bash -c "service apache2 reload"
+```
+
+### 15.2 Ocultar versión de PHP
+
+PHP también expone su versión a través de la cabecera `X-Powered-By`.
+
+**Corrección:**
+Edita tu archivo `php.ini` (en `./config/php/php.ini` o `/usr/local/etc/php/php.ini`):
+
+```ini
+expose_php = Off
+```
+
+Recarga Apache y verifica de nuevo con `curl -I`.
+
+### 15.3 Deshabilitar listado de directorios
+
+Si no hay un archivo `index.html` o `index.php`, Apache muestra el listado de archivos del directorio por defecto.
+
+**Prueba:**
+1. Crea una carpeta de ejemplo: `mkdir /var/www/html/hacker/ejemplo`
+2. Añade archivos: `touch /var/www/html/hacker/ejemplo/file1.txt`
+3. Accede a `http://hacker.edu/ejemplo/`. Si ves los archivos, hay un fallo de configuración.
+
+**Corrección:**
+En la configuración de tu sitio (`default.conf` o `hacker.conf`), cambia `Indexes` por `-Indexes`:
+
+```conf
+<Directory /var/www/html/hacker>
+    Options -Indexes +FollowSymLinks
+    AllowOverride All
+    Require all granted
+</Directory>
+```
+
+---
+
+## 16. Otras Mitigaciones y Mejores Prácticas
+
+### 16.1 Revisar permisos de archivos sensibles
+
+Los archivos de configuración no deben ser legibles por usuarios no autorizados:
+```bash
+chmod 640 /etc/apache2/apache2.conf
+```
+
+### 16.2 Políticas de Control de Acceso (Autorización)
+
+Usa la directiva `Require` para limitar accesos:
+- `Require all granted`: Acceso total.
+- `Require all denied`: Bloqueo total.
+- `Require local`: Solo desde localhost.
+- `Require ip 172.20`: Solo desde una red específica.
+
+### 16.3 Desactivar métodos HTTP inseguros
+
+Limita los métodos permitidos a los necesarios (normalmente GET y POST):
+
+```conf
+<Directory />
+    <LimitExcept GET POST>
+        Deny from all
+    </LimitExcept>
+</Directory>
+```
+
+---
+
+## 17. Implementación de WAF con ModSecurity
+
+Un **WAF (Web Application Firewall)** protege contra ataques comunes como SQLi, XSS y Path Traversal filtrando el tráfico malicioso.
+
+### Paso 1: Instalar ModSecurity
+
+Entra en el contenedor y ejecuta:
+```bash
+apt update
+apt install libapache2-mod-security2
+```
+
+### Paso 2: Configuración recomendada
+
+```bash
+cp /etc/modsecurity/modsecurity.conf-recommended /etc/modsecurity/modsecurity.conf
+```
+
+Edita `/etc/modsecurity/modsecurity.conf` y cambia:
+- `SecRuleEngine DetectionOnly` (para solo loguear ataques).
+- `SecRuleEngine On` (para bloquear ataques activamente).
+
+### Paso 3: Instalar reglas OWASP CRS
+
+```bash
+cd /etc/modsecurity
+git clone https://github.com/coreruleset/coreruleset.git
+cd coreruleset
+cp crs-setup.conf.example crs-setup.conf
+```
+
+Asegúrate de que las reglas se carguen en `/etc/apache2/mods-available/security2.conf` o crea un archivo en `conf-available`:
+
+```conf
+IncludeOptional /etc/modsecurity/coreruleset/crs-setup.conf
+IncludeOptional /etc/modsecurity/coreruleset/rules/*.conf
+```
+
+### Paso 4: Probar el WAF
+
+Intenta un ataque de **Path Traversal**:
+`https://pps.edu/lfi.php?file=../../../../etc/passwd`
+
+Si está en modo `On`, recibirás un error **403 Forbidden**. Puedes revisar los ataques detectados en:
+`/var/log/apache2/modsec_audit.log`
+
+---
+
+## 18. Solución de Problemas (Troubleshooting)
+
+### Escenario no arranca tras cambios
+Si Apache falla al iniciar después de modificar vhosts, puede ser porque:
+- Falta un módulo (ej: `ssl`, `headers`, `rewrite`). Habilítalos con `a2enmod`.
+- Hay un error de sintaxis en el `.conf`. Revisa con `apache2ctl -t`.
+
+### Persistencia de datos en Docker
+- Los cambios en volúmenes bind-mount (`./config`, `./www`) persisten tras un `docker-compose down`.
+- Si necesitas empezar de cero totalmente: `docker-compose down -v` y borra manualmente las carpetas de configuración si es necesario.
+
+---
+
+**¡Tarea completada!** Ya tienes tu servidor Apache securizado con HTTPS, CSP, HSTS y un WAF funcional.
