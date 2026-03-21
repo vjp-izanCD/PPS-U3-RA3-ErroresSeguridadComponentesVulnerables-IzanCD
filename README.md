@@ -167,12 +167,6 @@ En el archivo `/etc/hosts` añades:
 
 Como trabajamos con Docker y usamos redirección de puertos (el contenedor se expone en `http://localhost:80`), la IP `127.0.0.1` (bucle local) es perfecta.
 
-Si quisieras acceder desde otros equipos de la red local o consultar la IP real del contenedor:
-
-```bash
-docker inspect lamp-php83 | grep IPAddress
-```
-
 Una vez añadida la línea en `/etc/hosts`, puedes acceder a:
 
 ```
