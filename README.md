@@ -648,3 +648,58 @@ Si Apache falla al iniciar después de modificar vhosts, puede ser porque:
 
 ---
 
+
+
+---
+
+## Volver a dejar todo "niquelao"
+
+Para eliminar los cambios que hemos realizado en esta actividad y volver a dejar todo en su sitio de cara a hacer otras actividades vamos a realizar algunas acciones
+
+Desinstalamos Modsecurity y elimanos las reglas de ModSecurity:
+
+```bash
+sudo apt remove --purge libapache2-mod-security2
+rm -rf /etc/modsecurity
+```
+
+Volvemos a colocar los archivos por defecto
+
+- Archivo de configuración de `Apache`[/etc/apache2/apache2.conf](https://github.com/jmmedinac03vjp/PuestaProduccionSegura/blob/main/Unidad3-VulnerabilidadesWeb/Actividad-HardeningSevidorApache-HTTPS-HSTS-WAF/files/apache2.conf.minimo)
+
+- Archivo de configuración de `PHP`. Nosotros al estar utilizando un escenario multicontenedor lo tenemos en [/usr/local/etc/php/php.ini](https://github.com/jmmedinac03vjp/PuestaProduccionSegura/blob/main/Unidad3-VulnerabilidadesWeb/Actividad-HardeningSevidorApache-HTTPS-HSTS-WAF/files/php.ini).
+
+```bash
+apache2ctl -t -D DUMP_INCLUDES | grep modsecurity
+```
+
+No debe de darnos ningún resultado.
+
+**GUARDANDO LOS CAMBIOS**
+
+Para guardar los cambios y volver a dejar la configuración original pasamos los dos scripts.
+
+```bash
+sudo ./guardarConfiguraciones.sh ApacheSeguro
+sudo ./restaurarConfiguracionOriginal.sh
+```
+
+Los archivos que hemos creado se guardarán en la carpeta `./ApacheSeguro/www`. Aunque en esta ocasión como hemos trabajado sobre todo con archivos de configuración, algunos de ellos no se han guardado.
+
+Si no vas a seguir trabajando con el entorno de pruebas, puedes parar el escenario:
+
+```bash
+docker compose down
+```
+
+---
+
+## 19. ENTREGA
+
+> **Realiza las operaciones indicadas**
+>
+> **Crea un documento en Markdown donde pegarás las capturas de pantalla que evidencien cómo has probado los tres archivos de login y el resultado. Entre ellos indica brévemente y con tus palabras las mejoras que incorpora cada uno de ellos.**
+
+---
+
+[Licencia: CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
