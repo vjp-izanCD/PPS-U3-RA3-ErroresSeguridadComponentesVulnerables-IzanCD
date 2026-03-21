@@ -648,4 +648,3 @@ Si Apache falla al iniciar después de modificar vhosts, puede ser porque:
 
 ---
 
-**¡Tarea completada!** Ya tienes tu servidor Apache securizado con HTTPS, CSP, HSTS y un WAF funcional.
