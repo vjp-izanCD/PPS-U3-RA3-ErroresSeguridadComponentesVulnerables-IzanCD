@@ -38,10 +38,10 @@ En este escenario utilizamos Docker Compose, así que para cambiar archivos de c
 - Si el archivo no está en bind-mount o prefieres cambiarlo dentro del contenedor, entra en el contenedor PHP/Apache:
 
 ```bash
-docker exec -it lamp-php84 /bin/bash
+docker exec -it lamp-php83 /bin/bash
 ```
 
-El contenedor del servicio web se llama `lamp-php84`.
+El contenedor del servicio web se llama `lamp-php83`.
 Si tu carpeta de proyecto no se llama `lamp`, el nombre del contenedor puede variar y tendrás que adaptarlo.
 
 En una máquina Linux normal (sin docker-compose), Apache se instalaría con:
@@ -140,10 +140,7 @@ En tu pila LAMP los ficheros de vhosts están bind-mount en `./config/vhosts/`, 
 Si lo hicieras "a la antigua" desde dentro del contenedor:
 
 ```bash
-docker exec -it lamp-php84 /bin/bash
-nano /etc/apache2/sites-available/default.conf
-a2ensite /etc/apache2/sites-available/default.conf
-service apache2 reload
+docker exec lamp-php83 /bin/bash -c "service apache2 reload"
 ```
 
 ### Permisos y propietarios del DocumentRoot
@@ -152,11 +149,8 @@ Apache atiende las peticiones con el usuario y grupo `www-data`.
 Para que tenga acceso al contenido del sitio en `/var/www/html`, puedes ejecutar:
 
 ```bash
-chown -R www-data:www-data /var/www/html/*
-chmod -R 755 /var/www/html/*
+docker exec lamp-php83 /bin/bash -c "chown -R www-data:www-data /var/www/html && chmod -R 755 /var/www/html"
 ```
-
-**Importante**: estos cambios se aplican también al bind-mount `./www` en tu anfitrión, por lo que después tendrás que editar los archivos desde el contenedor (no desde el host).
 
 ---
 
@@ -176,7 +170,7 @@ Como trabajamos con Docker y usamos redirección de puertos (el contenedor se ex
 Si quisieras acceder desde otros equipos de la red local o consultar la IP real del contenedor:
 
 ```bash
-docker inspect lamp-php84 | grep IPAddress
+docker inspect lamp-php83 | grep IPAddress
 ```
 
 Una vez añadida la línea en `/etc/hosts`, puedes acceder a:
@@ -195,7 +189,7 @@ Pasos:
 
 1. Crear la estructura de directorios en el contenedor:
    ```bash
-   docker exec -it lamp-php84 /bin/bash
+   docker exec -it lamp-php83 /bin/bash
    mkdir -p /var/www/hacker
    ```
 
@@ -254,7 +248,7 @@ Para proteger las comunicaciones, habilitamos HTTPS en nuestro servidor.
 Entra en el contenedor:
 
 ```bash
-docker exec -it lamp-php84 /bin/bash
+docker exec -it lamp-php83 /bin/bash
 ```
 
 Crea el directorio de certificados y genera uno autofirmado válido por 365 días:
@@ -317,7 +311,7 @@ Edita `./config/vhosts/default.conf` en tu anfitrón:
 Desde el contenedor o anfitrón:
 
 ```bash
-docker exec lamp-php84 /bin/bash -c "a2enmod ssl; service apache2 reload"
+docker exec lamp-php83 /bin/bash -c "a2enmod ssl; service apache2 reload"
 ```
 
 ### Paso 4: Acceder por HTTPS
@@ -363,7 +357,7 @@ Modifica `./config/vhosts/default.conf`:
 Recarga Apache:
 
 ```bash
-docker exec lamp-php84 /bin/bash -c "service apache2 restart"
+docker exec lamp-php83 /bin/bash -c "service apache2 restart"
 ```
 
 ### Opción B: RewriteEngine (más flexible)
@@ -398,7 +392,7 @@ Modifica `./config/vhosts/default.conf`:
 Asegúrate de que el módulo `mod_rewrite` está habilitado:
 
 ```bash
-docker exec lamp-php84 /bin/bash -c "a2enmod rewrite; service apache2 restart"
+docker exec lamp-php83 /bin/bash -c "a2enmod rewrite; service apache2 restart"
 ```
 
 ---
@@ -446,7 +440,7 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 Asegúrate de que `mod_rewrite` está habilitado:
 
 ```bash
-docker exec lamp-php84 /bin/bash -c "a2enmod rewrite; service apache2 restart"
+docker exec lamp-php83 /bin/bash -c "a2enmod rewrite; service apache2 restart"
 ```
 
 ---
@@ -514,7 +508,7 @@ ServerTokens Prod
 
 Reinicia Apache:
 ```bash
-docker exec lamp-php84 /bin/bash -c "service apache2 reload"
+docker exec lamp-php83 /bin/bash -c "service apache2 reload"
 ```
 
 ### 15.2 Ocultar versión de PHP
