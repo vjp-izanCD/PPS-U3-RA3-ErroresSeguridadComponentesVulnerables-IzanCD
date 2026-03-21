@@ -1,373 +1,524 @@
-# PPS-U3-RA3 - Errores en la Seguridad y Componentes Vulnerables
+# PPS-U3-RA3 – Errores de seguridad por componentes vulnerables
 
-En este documento se detallan los pasos realizados, comandos utilizados, payloads de inyeccion SQL, evidencias en forma de capturas de pantalla y explicaciones para completar la actividad de inyecciones SQL en tres formularios de login con diferentes niveles de proteccion.
+## 1. Iniciar entorno de pruebas
+
+1. Situarte en la carpeta del entorno de pruebas LAMP (la que contiene los scripts y el `docker-compose.yml`).
+2. Restaurar la configuración original del escenario:
+   ```bash
+   sudo ./restaurarConfiguracionOriginal.sh
+   ```
+3. Levantar el escenario multicontenedor:
+   ```bash
+   docker-compose up -d
+   ```
+
+En esta práctica **no** vamos a tocar principalmente archivos `.php` de la aplicación, sino los archivos de configuración del servidor:
+
+- **Archivo de configuración global de Apache**: `/etc/apache2/apache2.conf`
+  - Es el fichero principal de Apache.
+  - No está en un volumen bind-mount, así que para modificarlo hay que entrar dentro del contenedor.
+  - Asegúrate de tener solo un archivo de configuración válido; configuraciones duplicadas o incorrectas pueden impedir que el contenedor arranque.
+
+- **Archivo de configuración de PHP**: `/usr/local/etc/php/php.ini`
+  - En el escenario multicontenedor se expone por bind-mount en `./config/php/php.ini`, por lo que puedes editarlo directamente desde el anfitrión.
+
+- **Configuración de sitios virtuales de Apache**: `/etc/apache2/sites-enabled/`
+  - Tiene bind-mount con el directorio `./config/vhosts/` del anfitrión.
+  - Podrás modificar o añadir configuraciones de sitios virtuales trabajando sobre `./config/vhosts/`.
+
+En el último punto del enunciado original tienes una sección de "IMPORTANTE – Solución problemas que puedan surgir" donde se explican errores típicos al cambiar configuraciones; conviene leerla antes de tocar nada.
 
 ---
 
-**Alumno:** Izan CD
+## 2. Apache en el escenario Docker
 
-**Curso:** Puesta en Produccion Segura (PPS)
+En este escenario utilizamos Docker Compose, así que para cambiar archivos de configuración:
 
-**Unidad:** 3 - Deteccion y Correccion de Vulnerabilidades de Aplicaciones Web
+- Si el archivo está en un volumen bind-mount (por ejemplo `./config`, `./logs`, `./config/vhosts`, `./config/php/php.ini`), lo editas desde tu máquina anfitriona.
+- Si el archivo no está en bind-mount o prefieres cambiarlo dentro del contenedor, entra en el contenedor PHP/Apache:
 
-**Actividad:** RA3 - Errores en la Seguridad y componentes vulnerables
+```bash
+docker exec -it lamp-php84 /bin/bash
+```
+
+El contenedor del servicio web se llama `lamp-php84`.
+Si tu carpeta de proyecto no se llama `lamp`, el nombre del contenedor puede variar y tendrás que adaptarlo.
+
+En una máquina Linux normal (sin docker-compose), Apache se instalaría con:
+
+```bash
+apt update
+apt install apache2
+```
+
+Si no estás trabajando como `root`, añade `sudo` delante de los comandos.
 
 ---
-## 1. Preparacion del entorno
 
-### 1.1. Arrancar entorno LAMP con Docker
+## 3. Estructura de directorios de Apache
 
-Me sitúo en la carpeta del entorno de pruebas LAMP y restauro la configuracion original.
+El directorio principal de configuración de Apache es `/etc/apache2`.
+Dentro encontrarás, entre otros, esta estructura:
 
-```
-cd ~/ruta/a/mi/entorno/LAMP
-sudo ./restaurarConfiguracionOriginal.sh
-```
-
-A continuación levanto el escenario multicontenedor.
-
-```
-docker-compose up -d
-```
-
-Compruebo que los contenedores están arriba:
-
-```
-docker ps
+```text
+/etc/apache2/
+|-- apache2.conf
+|       `-- ports.conf
+|-- mods-enabled
+|       |-- *.load
+|       `-- *.conf
+|-- conf-enabled
+|       `-- *.conf
+`-- sites-enabled
+        `-- *.conf
+`-- sites-available
+        `-- *.conf
 ```
 
-> Captura 1-T1: Contenedores del entorno LAMP funcionando correctamente.
+Puntos clave:
 
-### 1.2. Comprobacion de la base de datos SQLi
+- `apache2.conf` es el archivo de configuración global.
+- Los **módulos** añaden funcionalidades a Apache (por ejemplo, `ssl` para HTTPS).
+  - `mods-available`: módulos disponibles.
+  - `mods-enabled`: módulos habilitados (activos).
+- Listar módulos cargados:
+  ```bash
+  apache2ctl -t -D DUMP_MODULES
+  ```
 
-Acceso al contenedor de MySQL para verificar la base de datos.
+**Gestión de módulos:**
 
-```
-docker exec -it lamp-mysql8 /bin/bash
-```
+- Habilitar un módulo:
+  ```bash
+  a2enmod nombre_modulo
+  ```
+  Ejemplo:
+  ```bash
+  a2enmod ssl
+  ```
 
-Dentro del contenedor, me conecto a MySQL como root:
+- Deshabilitar un módulo:
+  ```bash
+  a2dismod nombre_modulo
+  ```
 
-```
-mysql -u root -p
-```
+Internamente, `a2enmod` crea un enlace simbólico desde `mods-available` a `mods-enabled`; `a2dismod` elimina ese enlace.
 
-Verifico que la base de datos SQLi y la tabla de usuarios existen:
+**Gestión de sitios virtuales:**
 
-```
-SHOW DATABASES;
-USE SQLi;
-SELECT * FROM usuarios;
-exit
-```
+- `sites-available`: configuraciones de sitios disponibles (pueden estar habilitados o no).
+- `sites-enabled`: configuraciones de sitios que Apache tiene activos.
+- Habilitar un sitio:
+  ```bash
+  a2ensite archivo.conf
+  ```
 
-Salgo del contenedor:
+---
 
-```
-exit
-```
+## 4. Creación de sitio virtual `www.pps.edu`
 
-> Captura 1-2-T1: Tabla `usuarios` en la BBDD `SQLi` mostrando los datos iniciales.
+Para crear un sitio virtual modificamos un archivo en `sites-available`.
+En este caso, vamos a usar `default.conf` (o un fichero equivalente) con este contenido:
 
-### 1.3. Verificacion de los archivos de login
+```conf
+<VirtualHost *:80>
 
-Los tres formularios se encuentran en la carpeta `SQLi` del entorno LAMP:
+    ServerName www.pps.edu
+    ServerAdmin webmaster@localhost
+    DocumentRoot /var/www/html
 
-| Login | Archivo | Nivel de proteccion |
-|---|---|---|
-| Login 1 | `login1.php` | Sin proteccion |
-| Login 2 | `login2.php` | Mitigacion parcial |
-| Login 3 | `login3.php` | Mitigacion completa |
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
 
-Compruebo que los archivos existen:
-
-```
-ls -la ~/ruta/a/mi/entorno/LAMP/www/SQLi/
-```
-
-> Captura 1-3-T1: Listado de archivos en el directorio `SQLi`.
-## 2. Login 1 - Formulario Vulnerable (sin mitigaciones)
-
-### 2.1. Acceso al formulario
-
-Abro el navegador y accedo a:
-
-*   `http://localhost/SQLi/login1.php`
-
-> Captura 2-1-T1: Formulario de login de `login1.php` mostrando los campos usuario y contraseña.
-
-### 2.2. Prueba de autenticacion con credenciales correctas
-
-Pruebo con las credenciales que conozco de la base de datos:
-
-*   `username: admin`, `password: 1234`
-
-> Captura 2-2-T1: Login exitoso en `login1.php` con credenciales reales.
-
-### 2.3. Ataque de Inyeccion SQL
-
-#### Payload utilizado
-
-En el campo de usuario introduzco:
-
-```
-admin
+</VirtualHost>
 ```
 
-Y en el campo de contraseña:
+Significado de las directivas más importantes:
 
-```
-' OR '1'='1
-```
+- `ServerName`: nombre del host virtual (en este caso `www.pps.edu`).
+- `ServerAdmin`: correo del administrador del sitio.
+- `DocumentRoot`: carpeta donde se sirven los archivos del sitio (`/var/www/html`).
+- `ErrorLog` y `CustomLog`: rutas de los logs, usando la variable `${APACHE_LOG_DIR}` (en el contenedor es `/var/log/apache2`).
 
-#### Explicacion del payload
+En tu pila LAMP los ficheros de vhosts están bind-mount en `./config/vhosts/`, así que normalmente basta con editar ahí y recargar Apache, sin usar `a2ensite`.
+Si lo hicieras "a la antigua" desde dentro del contenedor:
 
-*   `'` → cierra el campo de texto de la consulta SQL original.
-*   `OR '1'='1` → fuerza una condicion siempre verdadera en la consulta.
-*   `--` (opcional) → comenta el resto de la consulta original para evitar errores de sintaxis.
-
-La consulta final que ejecuta el servidor queda asi:
-
-```sql
-SELECT * FROM usuarios WHERE usuario = 'admin' AND contrasenya = '' OR '1'='1';
-```
-
-Como `'1'='1'` es siempre verdadero, el WHERE se cumple y devuelve todas las filas de la tabla.
-
-> Captura 2-3-T1: Inyeccion SQL exitosa en `login1.php` mostrando acceso no autorizado.
-
-### 2.4. Analisis del codigo vulnerable
-
-El archivo `login1.php` construye la consulta concatenando directamente los valores del formulario:
-
-```php
-$query = "SELECT * FROM usuarios WHERE usuario = '" . $_REQUEST['username'] . 
-         "' AND contrasenya = '" . $_REQUEST['password'] . "'";
-$result = $conn->query($query);
+```bash
+docker exec -it lamp-php84 /bin/bash
+nano /etc/apache2/sites-available/default.conf
+a2ensite /etc/apache2/sites-available/default.conf
+service apache2 reload
 ```
 
-Esto permite que cualquier entrada del usuario se interprete como parte de la consulta SQL.
+### Permisos y propietarios del DocumentRoot
 
-### 2.5. Conclusion del Login 1
+Apache atiende las peticiones con el usuario y grupo `www-data`.
+Para que tenga acceso al contenido del sitio en `/var/www/html`, puedes ejecutar:
 
-El formulario `login1.php` es completamente vulnerable a SQL Injection. Cualquier atacante puede:
-
-*   Bypassear la autenticacion sin conocer credenciales reales.
-*   Enumerar todos los usuarios de la base de datos.
-*   Extraer informacion sensible mediante UNION-based SQL Injection.
-## 3. Login 2 - Mitigacion Parcial de Inyeccion SQL
-
-### 3.1. Acceso al formulario
-
-Abro el navegador y accedo a:
-
-*   `http://localhost/SQLi/login2.php`
-
-> Captura 3-1-T1: Formulario de login de `login2.php` mostrando los campos usuario y contraseña.
-
-### 3.2. Prueba con el mismo payload de SQLi
-
-Pruebo el mismo payload que funciono en el login 1:
-
-*   `username: admin`
-*   `password: ' OR '1'='1`
-
-> Captura 3-2-T1: Intento de SQL Injection en `login2.php` (resultado: ataque fallido o mensaje generico).
-
-### 3.3. Mitigacion aplicada en Login 2
-
-El archivo `login2.php` implementa **consultas preparadas (prepared statements)**:
-
-```php
-$query = "SELECT * FROM usuarios WHERE usuario = ? AND contrasenya = ?";
-$stmt = $conn->prepare($query);
-$stmt->bind_param("ss", $username, $password);
-$stmt->execute();
-$result = $stmt->get_result();
+```bash
+chown -R www-data:www-data /var/www/html/*
+chmod -R 755 /var/www/html/*
 ```
 
-**Explicacion de la mejora:**
+**Importante**: estos cambios se aplican también al bind-mount `./www` en tu anfitrión, por lo que después tendrás que editar los archivos desde el contenedor (no desde el host).
 
-*   Se utilizan placeholders (`?`) en lugar de concatenar valores directamente.
-*   `bind_param()` vincula los valores de las variables como parametros, no como codigo SQL.
-*   El motor de base de datos trata los datos del usuario como valores literales, por lo que el payload `' OR '1'='1` se interpreta como una simple cadena de texto y no altera la logica de la consulta.
+---
 
-### 3.4. Pruebas adicionales
+## 5. Resolución local de nombres: `/etc/hosts`
 
-Pruebo con las credenciales correctas para verificar que el login funcional sigue trabajando:
+Tu navegador resuelve direcciones como `www.google.com` consultando servidores DNS que asocian el nombre con su IP.
+Para los sitios virtuales locales que no están en DNS públicos, editas el archivo `/etc/hosts` en tu máquina anfitriona para asociar los nombres con IPs locales.
 
-*   `username: admin`, `password: 1234`
-
-> Captura 3-4-T1: Login exitoso en `login2.php` con credenciales reales.
-
-### 3.5. Conclusion del Login 2
-
-El uso de consultas preparadas mitiga eficazmente la inyeccion SQL basica. Sin embargo, este login podria mejorarse con:
-
-*   Validacion estricta de entradas (longitud maxima, caracteres permitidos).
-*   Mensajes de error genericos que no revelen informacion del backend.
-*   Hashing de contraseñas con `password_hash()` en lugar de texto plano.
-*   Limitacion de intentos para evitar ataques de fuerza bruta.
-## 4. Login 3 - Mitigacion Completa y Hardening Adicional
-
-### 4.1. Acceso al formulario
-
-Abro el navegador y accedo a:
-
-*   `http://localhost/SQLi/login3.php`
-
-> Captura 4-1-T1: Formulario de login de `login3.php` mostrando los campos usuario y contraseña.
-
-### 4.2. Prueba con payload de SQLi
-
-Pruebo nuevamente el payload de inyeccion SQL:
-
-*   `username: admin`
-*   `password: ' OR '1'='1`
-
-> Captura 4-2-T1: Intento de SQL Injection en `login3.php` (resultado: ataque bloqueado totalmente).
-
-### 4.3. Prueba con payload de XSS
-
-Pruebo un payload adicional para verificar proteccion contra XSS:
-
-*   `username: <script>alert('XSS')</script>`
-*   `password: password123`
-
-> Captura 4-3-T1: Intento de XSS en `login3.php` (resultado: codigo sanitized, alerta no se ejecuta).
-
-### 4.4. Mitigaciones aplicadas en Login 3
-
-El archivo `login3.php` implementa un enfoque de **defensa en profundidad**:
-
-#### 1. Consultas preparadas (base)
-```php
-$query = "SELECT contrasenya FROM usuarios WHERE usuario = ?";
-$stmt = $conn->prepare($query);
-$stmt->bind_param("s", $username);
-```
-
-#### 2. Validacion estricta de entradas
-```php
-$username = trim($_REQUEST['username']);
-$password = trim($_REQUEST['password']);
-
-if (strlen($username) < 3 || strlen($username) > 50) {
-    echo "Formato de usuario invalido.";
-    exit;
-}
-
-if (!preg_match('/^[a-zA-Z0-9_]+$/', $username)) {
-    echo "Caracteres no permitidos en el nombre de usuario.";
-    exit;
-}
-```
-
-#### 3. Hashing de contraseñas
-```php
-$hashed_password = $row['contrasenya'];
-if (password_verify($password, $hashed_password)) {
-    // Login exitoso
-} else {
-    // Login fallido
-}
-```
-
-#### 4. Gestion segura de errores
-```php
-error_reporting(0);
-ini_set('display_errors', 0);
-
-// Mensaje generico sin exponer detalles
-$message = "Usuario o contraseña incorrectos.";
-```
-
-#### 5. Proteccion contra XSS
-```php
-$username = htmlspecialchars($username, ENT_QUOTES, 'UTF-8');
-$username = strip_tags($username);
-```
-
-#### 6. Limitacion de intentos (opcional)
-```php
-// Comprobar intentos fallidos
-if ($failed_attempts >= 3 && $time_since_last_attempt < 900) {
-    echo "Cuenta temporalmente bloqueada. Intente de nuevo en " . 
-         ($remaining_seconds / 60) . " minutos.";
-    exit;
-}
-```
-
-### 4.5. Pruebas finales
-
-*   Login con credenciales correctas → Acceso exitoso.
-*   Login con credenciales incorrectas → Mensaje generico de error.
-*   Payload SQLi → Bloqueado completamente.
-*   Payload XSS → Sanitizado, no se ejecuta.
-*   Múltiples intentos fallidos → Posible bloqueo temporal.
-
-> Captura 4-5-T1: Login exitoso en `login3.php` con credenciales reales y validacion funcionando.
-
-### 4.6. Conclusion del Login 3
-
-El formulario `login3.php` representa la version mas segura con múltiples capas de proteccion combinadas. El enfoque de defensa en profundidad asegura que incluso si una capa de seguridad falla, las demas continuan protegiendo la aplicacion.
-## 5. Hardening del Servidor Web (Contexto de la actividad)
-
-Los formularios de login se ejecutan sobre un servidor Apache con hardening implementado en el escenario LAMP:
-
-*   **HTTPS con certificado autofirmado** → Configuracion mediante OpenSSL.
-*   **Forzado de HTTPS** → Redireccionamiento 301 en `default.conf`.
-*   **Ocultacion de versiones** → `ServerTokens Prod`, `ServerSignature Off`, `expose_php Off`.
-*   **Cabeceras de seguridad** → `X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`.
-*   **WAF con ModSecurity + OWASP CRS** → Bloqueo automatico de ataques conocidos como SQL Injection.
-*   **Deshabilitacion de metodos HTTP inseguros** → PUT, DELETE, TRACE deshabilitados.
-*   **Deshabilitacion de listado de directorios** → `Options -Indexes`.
-
-> Captura 5-1-T1: Cabeceras de seguridad HTTP del servidor Apache verificadas con las herramientas del navegador.
-
-## 6. Resumen Comparativo de Mitigaciones
-
-| Aspecto | Login 1 (Vulnerable) | Login 2 (Mitigacion 1) | Login 3 (Mitigacion 2) |
-|---|---|---|---|
-| **Inyeccion SQL** | Explotable totalmente | Mitigada con prepared statements | Mitigada + validacion extra |
-| **Consultas preparadas** | No implementadas | Implementadas | Implementadas |
-| **Sanitizacion de entradas** | No | Basica | Estricta |
-| **Gestion de errores** | Expone informacion sensible | Generica | Generica + logging seguro |
-| **Proteccion XSS** | No | No | Si (`htmlspecialchars`) |
-| **Hashing de contraseñas** | Texto plano | Texto plano | Hasheadas (`password_hash`) |
-| **Limitacion de intentos** | No | No | Opcional implementado |
-| **Defensa en profundidad** | No | Parcial | Si |
-
-## 7. Conclusiones
-
-Tras probar los tres formularios de login en el servidor web endurecido, se evidencia claramente la importancia de aplicar medidas de seguridad de forma progresiva:
-
-1.  **Login 1** demostro como una consulta SQL mal construida puede ser totalmente explotada. Un simple payload como `' OR '1'='1` es suficiente para bypassar la autenticacion.
-2.  **Login 2** mostro que el uso de consultas preparadas mitiga eficazmente la inyeccion SQL basica, al tratar los datos del usuario como valores literales y no como codigo ejecutable.
-3.  **Login 3** evidencio que la seguridad debe ser un enfoque de **defensa en profundidad**, combinando multiples capas de proteccion (validacion de entradas, hashing, sanitizacion de salidas, gestion de errores genericos, y limitacion de intentos).
-
-El hardening del servidor Apache complementa estas medidas a nivel de aplicacion, proporcionando proteccion adicional mediante el WAF, HTTPS obligatorio y ocultacion de informacion sensible del servidor.
-
-## 8. Guardar cambios y apagar el entorno
-
-Una vez completada la actividad, guardo la configuracion y restauro el entorno.
+En el archivo `/etc/hosts` añades:
 
 ```
-sudo ./guardarConfiguraciones.sh SQLi
-sudo ./restaurarConfiguracionOriginal.sh
+127.0.0.1 pps.edu www.pps.edu
 ```
 
-Los archivos de evidencias quedan en la carpeta del entorno LAMP bajo `./www/SQLi/`.
+Como trabajamos con Docker y usamos redirección de puertos (el contenedor se expone en `http://localhost:80`), la IP `127.0.0.1` (bucle local) es perfecta.
 
-Si no voy a seguir trabajando con el entorno, detengo los contenedores:
+Si quisieras acceder desde otros equipos de la red local o consultar la IP real del contenedor:
+
+```bash
+docker inspect lamp-php84 | grep IPAddress
+```
+
+Una vez añadida la línea en `/etc/hosts`, puedes acceder a:
 
 ```
-docker-compose down
+http://www.pps.edu/
 ```
 
-## Referencias
+---
 
-*   Actividad Hardening Servidor Apache - [github.com/jmmedinac03vjp/PuestaProduccionSegura](https://github.com/jmmedinac03vjp/PuestaProduccionSegura/blob/main/Unidad3-VulnerabilidadesWeb/Actividad-HardeningSevidorApache-HTTPS-HSTS-WAF/README.md)
-*   Puesta en Produccion Segura - Unidad 3 - IES Valle del Jerte
-*   OWASP SQL Injection - [owasp.org/www-community/attacks/SQL_Injection](https://owasp.org/www-community/attacks/SQL_Injection)
-*   OWASP Prepared Statements - [cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)
+## 6. Creación de servidor virtual `www.hacker.edu`
+
+Vamos a crear un segundo sitio virtual para alojar contenido de prueba (archivos "maliciosos" para simular vulnerabilidades).
+
+Pasos:
+
+1. Crear la estructura de directorios en el contenedor:
+   ```bash
+   docker exec -it lamp-php84 /bin/bash
+   mkdir -p /var/www/hacker
+   ```
+
+2. Crear un archivo `index.html` básico en `/var/www/hacker/index.html`:
+   ```html
+   <html>
+   <head><title>Hacker Site</title></head>
+   <body>
+   <h1>Welcome to Hacker Education Site</h1>
+   <p>Este es un sitio de prueba para simulación de vulnerabilidades.</p>
+   </body>
+   </html>
+   ```
+
+3. Establecer permisos y propietarios:
+   ```bash
+   chown -R www-data:www-data /var/www/hacker
+   chmod -R 755 /var/www/hacker
+   ```
+
+4. Crear el archivo de configuración del sitio virtual en `./config/vhosts/hacker.conf`:
+   ```conf
+   <VirtualHost *:80>
+       ServerName www.hacker.edu
+       ServerAdmin webmaster@localhost
+       DocumentRoot /var/www/hacker
+
+       ErrorLog ${APACHE_LOG_DIR}/error.log
+       CustomLog ${APACHE_LOG_DIR}/access.log combined
+   </VirtualHost>
+   ```
+
+5. Recargar Apache:
+   ```bash
+   service apache2 reload
+   ```
+
+6. Añadir el dominio a `/etc/hosts` de tu anfitrón:
+   ```
+   127.0.0.1 hacker hacker.edu www.hacker.edu
+   ```
+
+7. Acceder desde el navegador:
+   ```
+   http://www.hacker.edu/
+   ```
+
+---
+
+## 7. Habilitar HTTPS con SSL/TLS en Apache
+
+Para proteger las comunicaciones, habilitamos HTTPS en nuestro servidor.
+
+### Paso 1: Generar certificado SSL autofirmado
+
+Entra en el contenedor:
+
+```bash
+docker exec -it lamp-php84 /bin/bash
+```
+
+Crea el directorio de certificados y genera uno autofirmado válido por 365 días:
+
+```bash
+mkdir -p /etc/apache2/ssl
+cd /etc/apache2/ssl
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout localhost.key -out localhost.crt
+```
+
+**Parámetros del comando:**
+- `-x509`: crea un certificado autofirmado en lugar de una CSR.
+- `-nodes`: omite cifrar la clave privada (sin contraseña).
+- `-newkey rsa:2048`: genera clave RSA de 2048 bits.
+- `-keyout`: archivo de la clave privada.
+- `-out`: archivo del certificado.
+- `-days 365`: validez del certificado.
+
+Durante la ejecución se te pedirá información (país, organización, nombre común, etc.). Puedes presionar Enter para dejar los valores por defecto, pero en **Common Name (CN)** pon el nombre de tu servidor:
+
+```
+Common Name (e.g. server FQDN or YOUR name): pps.edu
+```
+
+### Paso 2: Configurar Apache para usar HTTPS
+
+Modifica el archivo de configuración de tu sitio virtual. En tu pila LAMP, este archivo está en `./config/vhosts/default.conf` (bind-mount).
+
+Edita `./config/vhosts/default.conf` en tu anfitrón:
+
+```conf
+<VirtualHost *:80>
+    ServerName www.pps.edu
+    ServerAdmin webmaster@localhost
+    DocumentRoot /var/www/html
+
+    <Directory /var/www/html>
+        Options Indexes FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName www.pps.edu
+
+    SSLEngine on
+    SSLCertificateFile /etc/apache2/ssl/localhost.crt
+    SSLCertificateKeyFile /etc/apache2/ssl/localhost.key
+
+    DocumentRoot /var/www/html
+</VirtualHost>
+```
+
+### Paso 3: Habilitar módulo SSL y recargar Apache
+
+Desde el contenedor o anfitrón:
+
+```bash
+docker exec lamp-php84 /bin/bash -c "a2enmod ssl; service apache2 reload"
+```
+
+### Paso 4: Acceder por HTTPS
+
+Ahora puedes acceder a:
+
+```
+https://www.pps.edu/
+```
+
+**Nota**: Como el certificado es autofirmado, el navegador avisará de que no es de confianza. Haz clic en "Avanzado" o "Continuar igualmente" para acceder al sitio.
+
+---
+
+## 8. Forzar HTTPS en Apache
+
+Para forzar que todas las peticiones HTTP se redireccionen automáticamente a HTTPS, tienes dos opciones:
+
+### Opción A: Redirect directo
+
+Modifica `./config/vhosts/default.conf`:
+
+```conf
+<VirtualHost *:80>
+    ServerName pps.edu
+    ServerAlias www.pps.edu
+
+    Redirect permanent / https://pps.edu/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName pps.edu
+    ServerAlias www.pps.edu
+    DocumentRoot /var/www/html
+
+    SSLEngine on
+    SSLCertificateFile /etc/apache2/ssl/localhost.crt
+    SSLCertificateKeyFile /etc/apache2/ssl/localhost.key
+    SSLCertificateChainFile /etc/apache2/ssl/localhost.crt
+</VirtualHost>
+```
+
+Recarga Apache:
+
+```bash
+docker exec lamp-php84 /bin/bash -c "service apache2 restart"
+```
+
+### Opción B: RewriteEngine (más flexible)
+
+Modifica `./config/vhosts/default.conf`:
+
+```conf
+<VirtualHost *:80>
+    ServerName www.pps.edu
+    ServerAdmin webmaster@localhost
+    DocumentRoot /var/www/html
+
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
+
+    RewriteEngine On
+    RewriteCond %{HTTPS} off
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName www.pps.edu
+
+    SSLEngine on
+    SSLCertificateFile /etc/apache2/ssl/localhost.crt
+    SSLCertificateKeyFile /etc/apache2/ssl/localhost.key
+
+    DocumentRoot /var/www/html
+</VirtualHost>
+```
+
+Asegúrate de que el módulo `mod_rewrite` está habilitado:
+
+```bash
+docker exec lamp-php84 /bin/bash -c "a2enmod rewrite; service apache2 restart"
+```
+
+---
+
+## 9. Alternativa: Forzar HTTPS con `.htaccess`
+
+Si prefieres no modificar la configuración global de Apache, puedes usar un archivo `.htaccess` en la raiz del proyecto (`./www/.htaccess`):
+
+```apache
+RewriteEngine On
+
+# Si no está usando HTTPS
+RewriteCond %{HTTPS} !=on
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+```
+
+**Requisito**: En tu `./config/vhosts/default.conf` debes permitir que se lean archivos `.htaccess`:
+
+```conf
+<VirtualHost *:80>
+    ServerName www.pps.edu
+
+    <Directory /var/www/html>
+        AllowOverride All
+    </Directory>
+
+    ServerAdmin webmaster@localhost
+    DocumentRoot /var/www/html
+
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName www.pps.edu
+
+    SSLEngine on
+    SSLCertificateFile /etc/apache2/ssl/localhost.crt
+    SSLCertificateKeyFile /etc/apache2/ssl/localhost.key
+
+    DocumentRoot /var/www/html
+</VirtualHost>
+```
+
+Asegúrate de que `mod_rewrite` está habilitado:
+
+```bash
+docker exec lamp-php84 /bin/bash -c "a2enmod rewrite; service apache2 restart"
+```
+
+
+---
+
+## 10. Notas importantes
+
+### Cambios en la configuración de Apache
+
+- El archivo principal `/etc/apache2/apache2.conf` **no** está en bind-mount. Si lo modificas dentro del contenedor, no se puede editar desde tu anfitrón.
+- Los archivos de `/etc/apache2/sites-enabled/` (vhosts) **sí** están en bind-mount en `./config/vhosts/`, por lo que puedes editarlos desde tu máquina.
+- El archivo `/usr/local/etc/php/php.ini` está en bind-mount en `./config/php/php.ini`.
+
+### Errores frecuentes
+
+- **Contenedor no arranca**: Verifica que los archivos `.conf` sean válidos. Una sintaxis incorrecta rompe Apache.
+- **"Acceso denegado"**: Asegúrate de que los permisos de `/var/www` son correctos (`chown -R www-data:www-data`, `chmod -R 755`).
+- **Certificado no reconocido**: Es normal si usas certificados autofirmados. El navegador avisará, pero puedes continuar.
+- **Redirección no funciona**: Comprueba que los módulos `ssl` y `rewrite` estén habilitados (`a2enmod ssl rewrite`).
+
+### Comandos útiles
+
+```bash
+# Entrar en el contenedor
+docker exec -it lamp-php84 /bin/bash
+
+# Ver estado de Apache
+service apache2 status
+
+# Probar configuración de Apache
+apache2ctl -t
+
+# Ver módulos cargados
+apache2ctl -M
+
+# Ver logs de error
+tail -f /var/log/apache2/error.log
+
+# Recargar configuración
+service apache2 reload
+
+# Reiniciar Apache
+service apache2 restart
+```
+
+---
+
+## 11. Resumen de pasos rápido
+
+1. **Iniciar escenario**: `sudo ./restaurarConfiguracionOriginal.sh` → `docker-compose up -d`
+2. **Crear sitio `pps.edu`**: Añadir configuración en `./config/vhosts/default.conf`
+3. **Resolver DNS**: Añadir `127.0.0.1 www.pps.edu` en `/etc/hosts`
+4. **Crear sitio `hacker.edu`**: Crear directorio `/var/www/hacker`, configuración en `./config/vhosts/hacker.conf`
+5. **Habilitar SSL**: Generar certificado con `openssl`, modificar vhosts para puertos 80 y 443
+6. **Forzar HTTPS**: Usar `Redirect`, `RewriteEngine` o `.htaccess`
+7. **Verificar**: Acceder a `http://www.pps.edu/` (redirige a HTTPS) y `http://www.hacker.edu/`
+
+---
+
+## 12. Leyendo el archivo de ejemplo
+
+En el repositorio original encontrarás archivos de ejemplo comentados en GitHub:
+
+- [`default.conf`](https://github.com/jmmedinac03vjp/PuestaProduccionSegura/blob/main/Unidad3-VulnerabilidadesWeb/Actividad-HardeningSevidorApache-HTTPS-HSTS-WAF/files/000-default.conf): Configuración básica
+- [`apache2.conf`](https://github.com/jmmedinac03vjp/PuestaProduccionSegura/blob/main/Unidad3-VulnerabilidadesWeb/Actividad-HardeningSevidorApache-HTTPS-HSTS-WAF/files/apache2.conf.minimo): Configuración global mínima
+- [`php.ini`](https://github.com/jmmedinac03vjp/PuestaProduccionSegura/blob/main/Unidad3-VulnerabilidadesWeb/Actividad-HardeningSevidorApache-HTTPS-HSTS-WAF/files/php.ini): Configuración de PHP
+- [`.htaccess`](https://github.com/jmmedinac03vjp/PuestaProduccionSegura/blob/main/Unidad3-VulnerabilidadesWeb/Actividad-HardeningSevidorApache-HTTPS-HSTS-WAF/files/htaccess): Redirección con `.htaccess`
+
+---
+
+**¿Pregunta?** Consulta el archivo README original o revisita la documentación de Apache en [httpd.apache.org](https://httpd.apache.org).
