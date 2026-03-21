@@ -648,10 +648,6 @@ Si Apache falla al iniciar después de modificar vhosts, puede ser porque:
 
 ---
 
-
-
----
-
 ## Volver a dejar todo "niquelao"
 
 Para eliminar los cambios que hemos realizado en esta actividad y volver a dejar todo en su sitio de cara a hacer otras actividades vamos a realizar algunas acciones
@@ -691,15 +687,3 @@ Si no vas a seguir trabajando con el entorno de pruebas, puedes parar el escenar
 ```bash
 docker compose down
 ```
-
----
-
-## 19. ENTREGA
-
-> **Realiza las operaciones indicadas**
->
-> **Crea un documento en Markdown donde pegarás las capturas de pantalla que evidencien cómo has probado los tres archivos de login y el resultado. Entre ellos indica brévemente y con tus palabras las mejoras que incorpora cada uno de ellos.**
-
----
-
-[Licencia: CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
